@@ -13,7 +13,7 @@
 
 databases:
   - name: veritrix-postgres
-    plan: basic-256mb
+    plan: free
     region: singapore
     databaseName: veritrix
     user: veritrix
@@ -44,6 +44,8 @@ services:
   # -----------------------------------------------------------------------
   # ClickHouse — private service (HTTP :8123). Not offered as managed DB.
   # -----------------------------------------------------------------------
+  # Note: Render free plan is not available for private services (pserv).
+  # ClickHouse must stay on starter (or higher).
   - type: pserv
     name: veritrix-clickhouse
     runtime: image
@@ -67,7 +69,7 @@ services:
   - type: web
     name: veritrix-ingest
     runtime: python
-    plan: starter
+    plan: free
     region: singapore
     rootDir: backend
     buildFilter:
@@ -113,7 +115,7 @@ services:
   - type: web
     name: veritrix-api
     runtime: python
-    plan: starter
+    plan: free
     region: singapore
     rootDir: backend
     buildFilter:
