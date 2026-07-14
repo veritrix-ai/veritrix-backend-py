@@ -1,0 +1,152 @@
+# Veritrix backend — Render Blueprint
+# https://render.com/docs/blueprint-spec
+#
+# Deploy: New Blueprint → set Blueprint Path to `backend/render.yaml`
+# (Render looks at repo-root render.yaml by default).
+#
+# After first deploy:
+# 1. Set Clerk + CORS values prompted in the dashboard (sync: false).
+# 2. Run scripts/init_postgres.sql against the Render Postgres instance once
+#    (Render does not auto-apply that init script).
+# 3. ClickHouse DB `veritrix` is created via CLICKHOUSE_DB; the ingest
+#    service creates the spans table on startup (ensure_schema).
+
+databases:
+  - name: veritrix-postgres
+    plan: basic-256mb
+    region: singapore
+    databaseName: veritrix
+    user: veritrix
+    # Private network only — APIs connect via Render internal DNS
+    ipAllowList: []
+
+envVarGroups:
+  - name: veritrix-secrets
+    envVars:
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: CLERK_PUBLISHABLE_KEY
+        sync: false
+      # Comma-separated frontend origins, e.g. https://app.example.com
+      - key: CORS_ORIGINS
+        sync: false
+
+  - name: veritrix-clickhouse-creds
+    envVars:
+      - key: CLICKHOUSE_DB
+        value: veritrix
+      - key: CLICKHOUSE_USER
+        value: default
+      - key: CLICKHOUSE_PASSWORD
+        generateValue: true
+
+services:
+  # -----------------------------------------------------------------------
+  # ClickHouse — private service (HTTP :8123). Not offered as managed DB.
+  # -----------------------------------------------------------------------
+  - type: pserv
+    name: veritrix-clickhouse
+    runtime: image
+    plan: starter
+    region: singapore
+    image:
+      url: docker.io/clickhouse/clickhouse-server:24.8
+    disk:
+      name: clickhouse-data
+      mountPath: /var/lib/clickhouse
+      sizeGB: 10
+    envVars:
+      # Tell Render which port this service listens on (HTTP interface)
+      - key: PORT
+        value: "8123"
+      - fromGroup: veritrix-clickhouse-creds
+
+  # -----------------------------------------------------------------------
+  # Ingest API — SDK writes (public)
+  # -----------------------------------------------------------------------
+  - type: web
+    name: veritrix-ingest
+    runtime: python
+    plan: starter
+    region: singapore
+    rootDir: backend
+    buildFilter:
+      paths:
+        - backend/**
+    buildCommand: |
+      pip install "fastapi>=0.111.0,<0.117.0" "starlette>=0.40.0,<0.48.0" \
+        "uvicorn[standard]>=0.30.0" "pydantic>=2.0" "pydantic-settings>=2.0" \
+        "sqlalchemy[asyncio]>=2.0" "asyncpg>=0.29.0" "httpx>=0.27.0" \
+        "PyJWT>=2.8.0" "cryptography>=42.0.0" "greenlet>=3.0.0"
+    # Render DATABASE_URL is postgresql://…; SQLAlchemy needs +asyncpg
+    startCommand: |
+      bash -c 'case "$DATABASE_URL" in
+        postgres://*) DATABASE_URL="postgresql+asyncpg://${DATABASE_URL#postgres://}" ;;
+        postgresql://*) DATABASE_URL="postgresql+asyncpg://${DATABASE_URL#postgresql://}" ;;
+      esac
+      export DATABASE_URL
+      exec env PYTHONPATH=. uvicorn ingest.main:app --host 0.0.0.0 --port "$PORT"'
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: veritrix-postgres
+          property: connectionString
+      - key: CLICKHOUSE_HOST
+        fromService:
+          name: veritrix-clickhouse
+          type: pserv
+          property: host
+      - key: CLICKHOUSE_PORT
+        value: "8123"
+      - fromGroup: veritrix-clickhouse-creds
+      - key: INGEST_RATE_LIMIT_PER_MINUTE
+        value: "1000"
+
+  # -----------------------------------------------------------------------
+  # App API — dashboard reads (public)
+  # -----------------------------------------------------------------------
+  - type: web
+    name: veritrix-api
+    runtime: python
+    plan: starter
+    region: singapore
+    rootDir: backend
+    buildFilter:
+      paths:
+        - backend/**
+    buildCommand: |
+      pip install "fastapi>=0.111.0,<0.117.0" "starlette>=0.40.0,<0.48.0" \
+        "uvicorn[standard]>=0.30.0" "pydantic>=2.0" "pydantic-settings>=2.0" \
+        "sqlalchemy[asyncio]>=2.0" "asyncpg>=0.29.0" "httpx>=0.27.0" \
+        "PyJWT>=2.8.0" "cryptography>=42.0.0" "greenlet>=3.0.0"
+    startCommand: |
+      bash -c 'case "$DATABASE_URL" in
+        postgres://*) DATABASE_URL="postgresql+asyncpg://${DATABASE_URL#postgres://}" ;;
+        postgresql://*) DATABASE_URL="postgresql+asyncpg://${DATABASE_URL#postgresql://}" ;;
+      esac
+      export DATABASE_URL
+      exec env PYTHONPATH=. uvicorn api.main:app --host 0.0.0.0 --port "$PORT"'
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.8"
+      - key: ENVIRONMENT
+        value: production
+      - key: DATABASE_URL
+        fromDatabase:
+          name: veritrix-postgres
+          property: connectionString
+      - key: CLICKHOUSE_HOST
+        fromService:
+          name: veritrix-clickhouse
+          type: pserv
+          property: host
+      - key: CLICKHOUSE_PORT
+        value: "8123"
+      - fromGroup: veritrix-clickhouse-creds
+      - fromGroup: veritrix-secrets
