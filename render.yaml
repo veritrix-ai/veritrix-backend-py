@@ -1,8 +1,8 @@
 # Veritrix backend — Render Blueprint
 # https://render.com/docs/blueprint-spec
 #
-# Deploy: New Blueprint → set Blueprint Path to `backend/render.yaml`
-# (Render looks at repo-root render.yaml by default).
+# This file lives at the root of the backend git repo. On Render, set
+# Blueprint Path to `render.yaml` (repo root).
 #
 # After first deploy:
 # 1. Set Clerk + CORS values prompted in the dashboard (sync: false).
@@ -57,8 +57,8 @@ services:
     runtime: docker
     plan: starter
     region: singapore
-    dockerfilePath: ./backend/Dockerfile.clickhouse
-    dockerContext: ./backend
+    dockerfilePath: ./Dockerfile.clickhouse
+    dockerContext: ./
     disk:
       name: clickhouse-data
       mountPath: /var/lib/clickhouse
@@ -76,10 +76,15 @@ services:
     runtime: python
     plan: free
     region: singapore
-    rootDir: backend
     buildFilter:
       paths:
-        - backend/**
+        - api/**
+        - ingest/**
+        - shared/**
+        - scripts/**
+        - pyproject.toml
+        - render.yaml
+        - Dockerfile.clickhouse
     buildCommand: |
       pip install "fastapi>=0.111.0,<0.117.0" "starlette>=0.40.0,<0.48.0" \
         "uvicorn[standard]>=0.30.0" "pydantic>=2.0" "pydantic-settings>=2.0" \
@@ -122,10 +127,15 @@ services:
     runtime: python
     plan: free
     region: singapore
-    rootDir: backend
     buildFilter:
       paths:
-        - backend/**
+        - api/**
+        - ingest/**
+        - shared/**
+        - scripts/**
+        - pyproject.toml
+        - render.yaml
+        - Dockerfile.clickhouse
     buildCommand: |
       pip install "fastapi>=0.111.0,<0.117.0" "starlette>=0.40.0,<0.48.0" \
         "uvicorn[standard]>=0.30.0" "pydantic>=2.0" "pydantic-settings>=2.0" \
