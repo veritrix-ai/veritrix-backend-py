@@ -8,8 +8,9 @@
 # 1. Set Clerk + CORS values prompted in the dashboard (sync: false).
 # 2. Run scripts/init_postgres.sql against the Render Postgres instance once
 #    (Render does not auto-apply that init script).
-# 3. ClickHouse DB `veritrix` is created via CLICKHOUSE_DB; the ingest
-#    service creates the spans table on startup (ensure_schema).
+# 3. Ingest creates the ClickHouse database + spans table on startup
+#    (ensure_schema). Do not set CLICKHOUSE_* init env vars on the ClickHouse
+#    service itself — that breaks the official entrypoint on Render.
 
 databases:
   - name: veritrix-postgres
@@ -31,14 +32,16 @@ envVarGroups:
       - key: CORS_ORIGINS
         sync: false
 
+  # Used by ingest + app API only — never attach to the ClickHouse service.
   - name: veritrix-clickhouse-creds
     envVars:
       - key: CLICKHOUSE_DB
         value: veritrix
       - key: CLICKHOUSE_USER
         value: default
+      # Passwordless over Render private network (users.d config in Dockerfile).
       - key: CLICKHOUSE_PASSWORD
-        generateValue: true
+        value: ""
 
 services:
   # -----------------------------------------------------------------------
@@ -46,22 +49,24 @@ services:
   # -----------------------------------------------------------------------
   # Note: Render free plan is not available for private services (pserv).
   # ClickHouse must stay on starter (or higher).
+  #
+  # Do NOT set CLICKHOUSE_DB / CLICKHOUSE_USER / CLICKHOUSE_PASSWORD here —
+  # the official entrypoint tries `kill` during init and fails on Render.
   - type: pserv
     name: veritrix-clickhouse
-    runtime: image
+    runtime: docker
     plan: starter
     region: singapore
-    image:
-      url: docker.io/clickhouse/clickhouse-server:24.8
+    dockerfilePath: ./backend/Dockerfile.clickhouse
+    dockerContext: ./backend
     disk:
       name: clickhouse-data
       mountPath: /var/lib/clickhouse
-      sizeGB: 10
+      sizeGB: 1
     envVars:
       # Tell Render which port this service listens on (HTTP interface)
       - key: PORT
         value: "8123"
-      - fromGroup: veritrix-clickhouse-creds
 
   # -----------------------------------------------------------------------
   # Ingest API — SDK writes (public)

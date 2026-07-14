@@ -53,14 +53,17 @@ class ClickHouseClient:
         return None
 
     async def ensure_schema(self) -> None:
-        query = CREATE_SPANS_TABLE_SQL.format(database=self._settings.clickhouse_db)
+        database = self._settings.clickhouse_db
+        create_db = f"CREATE DATABASE IF NOT EXISTS {database}"
+        create_table = CREATE_SPANS_TABLE_SQL.format(database=database)
         async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                self._base_url,
-                params={"query": query},
-                auth=self._auth(),
-            )
-            response.raise_for_status()
+            for query in (create_db, create_table):
+                response = await client.post(
+                    self._base_url,
+                    params={"query": query},
+                    auth=self._auth(),
+                )
+                response.raise_for_status()
 
     async def insert_spans(self, org_id: str, spans: list[SpanSchema]) -> None:
         if not spans:

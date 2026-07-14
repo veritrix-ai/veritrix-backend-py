@@ -1,0 +1,7 @@
+FROM clickhouse/clickhouse-server:24.8
+
+# Allow the default user to accept connections from Render's private network.
+# Do not set CLICKHOUSE_DB / CLICKHOUSE_USER / CLICKHOUSE_PASSWORD on this
+# service — the official entrypoint uses them to spawn a temporary server and
+# kill it, which fails on Render ("kill: Operation not permitted").
+COPY scripts/clickhouse-default-user.xml /etc/clickhouse-server/users.d/default-user.xml
