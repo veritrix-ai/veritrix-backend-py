@@ -28,9 +28,9 @@ envVarGroups:
         sync: false
       - key: CLERK_PUBLISHABLE_KEY
         sync: false
-      # Comma-separated frontend origins, e.g. https://app.example.com
+      # Browser origins allowed to call the App API (comma-separated).
       - key: CORS_ORIGINS
-        sync: false
+        value: https://veritrix-ui.vercel.app,https://app.veritrix.xyz
 
   # Used by ingest + app API only — never attach to the ClickHouse service.
   - name: veritrix-clickhouse-creds
