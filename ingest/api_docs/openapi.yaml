@@ -1,0 +1,243 @@
+openapi: 3.1.0
+info:
+  title: AgentOps Ingest API
+  version: 0.1.0
+  description: |
+    Receives OpenTelemetry-compatible spans from the AgentOps Python SDK
+    and stores them in ClickHouse.
+
+    - Write-only service (separate from the App API on port 8000)
+    - Returns 202 before ClickHouse insert completes
+    - Authenticates via Bearer API keys
+
+    Human-readable docs: ./README.md
+  contact:
+    name: AgentOps
+    url: https://docs.agentops.ai
+
+servers:
+  - url: http://localhost:8001
+    description: Local development
+  - url: https://ingest.agentops.ai
+    description: Production (placeholder)
+
+tags:
+  - name: health
+    description: Service liveness
+  - name: spans
+    description: Span ingestion
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Health check
+      description: Returns service liveness. Does not verify database connectivity.
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+
+  /v1/spans:
+    post:
+      tags: [spans]
+      summary: Ingest span batch
+      description: |
+        Accepts a batch of spans (max 500), validates them, and queues
+        an async insert into ClickHouse. Returns 202 immediately.
+      operationId: ingestSpans
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpanBatch"
+            example:
+              spans:
+                - trace_id: abc123
+                  span_id: span-001
+                  name: research-agent
+                  start_time: "2026-06-15T12:00:00.000Z"
+                  end_time: "2026-06-15T12:00:02.500Z"
+                  status: ok
+                  attributes:
+                    agentops.agent_id: agent-001
+                    agentops.agent_name: Research Analyst
+                    agentops.run_id: abc123
+                    agentops.framework: crewai
+                    agentops.span_type: agent
+                    agentops.duration_ms: 2500
+                  input_preview: Analyze job market for ML engineers
+                  output_preview: Found 3 trending roles...
+      responses:
+        "202":
+          description: Batch accepted and queued for insert
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AcceptedResponse"
+              example:
+                accepted: 1
+        "401":
+          description: Invalid or missing API key
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: invalid api key
+        "422":
+          description: Request body validation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidationErrorResponse"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error: rate limited
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Project API key from the AgentOps web console
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+          example: ok
+
+    SpanBatch:
+      type: object
+      required: [spans]
+      properties:
+        spans:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/Span"
+
+    Span:
+      type: object
+      required: [trace_id, span_id, name, start_time, attributes]
+      properties:
+        trace_id:
+          type: string
+          description: Trace identifier shared by all spans in a run
+        span_id:
+          type: string
+          description: Unique identifier for this span
+        parent_span_id:
+          type: string
+          nullable: true
+          description: Parent span ID for nested spans
+        name:
+          type: string
+          description: Human-readable span name
+        start_time:
+          type: string
+          format: date-time
+          description: UTC start timestamp
+        end_time:
+          type: string
+          format: date-time
+          nullable: true
+          description: UTC end timestamp
+        status:
+          type: string
+          enum: [ok, error]
+          default: ok
+        error_message:
+          type: string
+          nullable: true
+        attributes:
+          type: object
+          description: OTel attributes including required AgentOps keys
+          required:
+            - agentops.agent_id
+            - agentops.agent_name
+            - agentops.run_id
+            - agentops.framework
+            - agentops.span_type
+          properties:
+            agentops.agent_id:
+              type: string
+            agentops.agent_name:
+              type: string
+            agentops.run_id:
+              type: string
+            agentops.framework:
+              type: string
+              enum: [langchain, crewai, manual]
+            agentops.span_type:
+              type: string
+              enum: [agent, tool, llm, delegation]
+            agentops.duration_ms:
+              type: integer
+          additionalProperties: true
+        input_preview:
+          type: string
+          maxLength: 500
+          default: ""
+        output_preview:
+          type: string
+          maxLength: 500
+          default: ""
+
+    AcceptedResponse:
+      type: object
+      required: [accepted]
+      properties:
+        accepted:
+          type: integer
+          minimum: 1
+          maximum: 500
+          description: Number of spans accepted in the batch
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    ValidationErrorResponse:
+      type: object
+      required: [detail]
+      properties:
+        detail:
+          type: array
+          items:
+            type: object
+            properties:
+              type:
+                type: string
+              loc:
+                type: array
+                items:
+                  oneOf:
+                    - type: string
+                    - type: integer
+              msg:
+                type: string
+              input: {}

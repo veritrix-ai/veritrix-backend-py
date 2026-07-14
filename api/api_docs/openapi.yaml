@@ -1,0 +1,600 @@
+openapi: 3.1.0
+info:
+  title: AgentOps App API
+  version: 0.1.0
+  description: |
+    Serves read queries to the AgentOps dashboard. Reads span data from
+    ClickHouse and returns traces, agent graphs, and metrics.
+
+    - Separate from the Ingest API (port 8001)
+    - Authenticates dashboard users via Clerk session tokens
+    - Scoped by organization ID
+
+    Human-readable docs: ./README.md
+  contact:
+    name: AgentOps
+    url: https://docs.agentops.ai
+
+servers:
+  - url: http://localhost:8000
+    description: Local development
+  - url: https://api.agentops.ai
+    description: Production (placeholder)
+
+tags:
+  - name: health
+    description: Service liveness
+  - name: traces
+    description: Trace queries
+  - name: agents
+    description: Agent health
+  - name: metrics
+    description: Dashboard metrics
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      summary: Health check
+      operationId: getHealth
+      responses:
+        "200":
+          description: Service is running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /v1/traces:
+    get:
+      tags: [traces]
+      summary: List traces
+      operationId: listTraces
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+          description: Organization UUID
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [ok, error]
+      responses:
+        "200":
+          description: Trace list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/traces/{trace_id}:
+    get:
+      tags: [traces]
+      summary: Get trace detail
+      operationId: getTrace
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: trace_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full trace with spans
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceDetail"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/traces/{trace_id}/graph:
+    get:
+      tags: [traces]
+      summary: Get trace graph
+      operationId: getTraceGraph
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: trace_id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: React Flow nodes and edges
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TraceGraphResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/agents:
+    get:
+      tags: [agents]
+      summary: List agents
+      operationId: listAgents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Agent health summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AgentListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+  /v1/metrics/overview:
+    get:
+      tags: [metrics]
+      summary: Metrics overview
+      operationId: getMetricsOverview
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: org_id
+          in: query
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dashboard metrics data
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MetricsOverviewData"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: Clerk session token from the dashboard
+
+  responses:
+    Unauthorized:
+      description: Missing or invalid session token
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: unauthorized
+    Forbidden:
+      description: User cannot access the requested org
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: forbidden
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error: trace not found
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
+    TraceListResponse:
+      type: object
+      required: [traces, total]
+      properties:
+        traces:
+          type: array
+          items:
+            $ref: "#/components/schemas/TraceSummary"
+        total:
+          type: integer
+        metrics:
+          $ref: "#/components/schemas/TraceMetrics"
+
+    TraceSummary:
+      type: object
+      required: [trace_id, run_id, agent_name, status, duration_ms, span_count, start_time]
+      properties:
+        trace_id:
+          type: string
+        run_id:
+          type: string
+        agent_name:
+          type: string
+        name:
+          type: string
+          nullable: true
+        status:
+          type: string
+          enum: [ok, error]
+        duration_ms:
+          type: integer
+        span_count:
+          type: integer
+        start_time:
+          type: string
+          format: date-time
+        tags:
+          type: array
+          items:
+            type: string
+        cost_usd:
+          type: number
+          nullable: true
+        error_count:
+          type: integer
+          nullable: true
+
+    TraceMetrics:
+      type: object
+      required: [total_cost_usd, tokens_generated, fail_rate, total_events]
+      properties:
+        total_cost_usd:
+          type: number
+        tokens_generated:
+          type: integer
+        fail_rate:
+          type: number
+          nullable: true
+        total_events:
+          type: integer
+        monthly_spans:
+          type: integer
+          nullable: true
+        monthly_span_limit:
+          type: integer
+          nullable: true
+
+    TraceDetail:
+      type: object
+      required: [trace_id, run_id, spans]
+      properties:
+        trace_id:
+          type: string
+        run_id:
+          type: string
+        meta:
+          $ref: "#/components/schemas/TraceDetailMeta"
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/TraceAgentDetail"
+        spans:
+          type: array
+          items:
+            $ref: "#/components/schemas/Span"
+
+    TraceDetailMeta:
+      type: object
+      required: [name, duration_ms, llm_calls, tool_calls, errors, total_tokens, start_time]
+      properties:
+        name:
+          type: string
+        version:
+          type: string
+          nullable: true
+        model:
+          type: string
+          nullable: true
+        duration_ms:
+          type: integer
+        total_cost_usd:
+          type: number
+          nullable: true
+        llm_calls:
+          type: integer
+        tool_calls:
+          type: integer
+        errors:
+          type: integer
+        total_tokens:
+          type: integer
+        tags:
+          type: array
+          items:
+            type: string
+        start_time:
+          type: string
+          format: date-time
+
+    TraceAgentDetail:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        handoffs:
+          type: array
+          items:
+            type: string
+        tools:
+          type: array
+          items:
+            type: string
+
+    Span:
+      type: object
+      required:
+        - trace_id
+        - span_id
+        - agent_id
+        - agent_name
+        - run_id
+        - framework
+        - span_type
+        - start_time
+        - end_time
+        - duration_ms
+        - status
+      properties:
+        trace_id:
+          type: string
+        span_id:
+          type: string
+        parent_span_id:
+          type: string
+          nullable: true
+        agent_id:
+          type: string
+        agent_name:
+          type: string
+        run_id:
+          type: string
+        framework:
+          type: string
+          enum: [langchain, crewai, manual, openai]
+        span_type:
+          type: string
+          enum: [agent, tool, llm, delegation, other]
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        duration_ms:
+          type: integer
+        status:
+          type: string
+          enum: [ok, error]
+        error_message:
+          type: string
+          nullable: true
+        attributes:
+          type: object
+          additionalProperties: true
+        input_preview:
+          type: string
+        output_preview:
+          type: string
+        model:
+          type: string
+          nullable: true
+        prompt_tokens:
+          type: integer
+          nullable: true
+        completion_tokens:
+          type: integer
+          nullable: true
+        total_tokens:
+          type: integer
+          nullable: true
+        cost_usd:
+          type: number
+          nullable: true
+
+    TraceGraphResponse:
+      type: object
+      required: [nodes, edges]
+      properties:
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphNode"
+        edges:
+          type: array
+          items:
+            $ref: "#/components/schemas/GraphEdge"
+
+    GraphNode:
+      type: object
+      required: [id, type, data, position]
+      properties:
+        id:
+          type: string
+        type:
+          type: string
+          enum: [agentNode, toolNode, llmNode]
+        data:
+          $ref: "#/components/schemas/GraphNodeData"
+        position:
+          type: object
+          properties:
+            x:
+              type: number
+            y:
+              type: number
+
+    GraphNodeData:
+      type: object
+      required: [label, status, spanId, durationMs, spanType]
+      properties:
+        label:
+          type: string
+        status:
+          type: string
+          enum: [ok, error]
+        spanId:
+          type: string
+        durationMs:
+          type: integer
+        spanType:
+          type: string
+          enum: [agent, tool, llm, delegation, other]
+
+    GraphEdge:
+      type: object
+      required: [id, source, target]
+      properties:
+        id:
+          type: string
+        source:
+          type: string
+        target:
+          type: string
+        data:
+          type: object
+          nullable: true
+          properties:
+            status:
+              type: string
+              enum: [ok, error]
+
+    AgentListResponse:
+      type: object
+      required: [agents]
+      properties:
+        agents:
+          type: array
+          items:
+            $ref: "#/components/schemas/AgentSummary"
+
+    AgentSummary:
+      type: object
+      required: [agent_id, agent_name, framework, total_runs, error_rate, avg_duration_ms, last_seen]
+      properties:
+        agent_id:
+          type: string
+        agent_name:
+          type: string
+        framework:
+          type: string
+          enum: [langchain, crewai, manual, openai]
+        total_runs:
+          type: integer
+        error_rate:
+          type: number
+        avg_duration_ms:
+          type: integer
+        last_seen:
+          type: string
+          format: date-time
+
+    MetricsOverviewData:
+      type: object
+      required:
+        - overview
+        - span_end_states
+        - span_end_states_distribution
+        - spans_per_trace
+        - trace_duration_distribution
+      properties:
+        overview:
+          $ref: "#/components/schemas/TraceMetrics"
+        span_end_states:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpanEndStatePoint"
+        span_end_states_distribution:
+          $ref: "#/components/schemas/SpanEndStateDistribution"
+        spans_per_trace:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetricsHistogramBucket"
+        trace_duration_distribution:
+          type: array
+          items:
+            $ref: "#/components/schemas/MetricsHistogramBucket"
+
+    SpanEndStatePoint:
+      type: object
+      required: [date, success, indeterminate, fail]
+      properties:
+        date:
+          type: string
+        success:
+          type: integer
+        indeterminate:
+          type: integer
+        fail:
+          type: integer
+
+    SpanEndStateDistribution:
+      type: object
+      required: [success, indeterminate, fail]
+      properties:
+        success:
+          type: integer
+        indeterminate:
+          type: integer
+        fail:
+          type: integer
+
+    MetricsHistogramBucket:
+      type: object
+      required: [label, value]
+      properties:
+        label:
+          type: string
+        value:
+          type: integer
