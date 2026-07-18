@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from api.db.postgres import run_db
 from api.models import (
     CreateInviteRequest,
+    LinkClerkOrganizationRequest,
     OrgInvite,
     OrgMember,
     OrgMembersResponse,
@@ -19,8 +20,7 @@ from api.models import (
 async def get_organization(session: AsyncSession, org_id: str) -> OrganizationDetail:
     async def _load() -> OrganizationDetail:
         result = await session.execute(
-            text(
-                """
+            text("""
                 SELECT
                     o.id::text AS id,
                     o.name,
@@ -36,8 +36,7 @@ async def get_organization(session: AsyncSession, org_id: str) -> OrganizationDe
                 FROM orgs o
                 WHERE o.id = :org_id
                 LIMIT 1
-                """
-            ),
+                """),
             {"org_id": org_id},
         )
         row = result.mappings().first()
@@ -64,14 +63,12 @@ async def update_organization(
 ) -> OrganizationDetail:
     async def _update() -> None:
         result = await session.execute(
-            text(
-                """
+            text("""
                 UPDATE orgs
                 SET name = :name
                 WHERE id = :org_id
                 RETURNING id
-                """
-            ),
+                """),
             {"org_id": org_id, "name": body.name.strip()},
         )
         if result.first() is None:
@@ -85,11 +82,85 @@ async def update_organization(
     return await get_organization(session, org_id)
 
 
+async def link_clerk_organization(
+    session: AsyncSession,
+    org_id: str,
+    clerk_user_id: str,
+    body: LinkClerkOrganizationRequest,
+) -> None:
+    async def _link() -> None:
+        membership = await session.execute(
+            text("""
+                SELECT role
+                FROM org_members
+                WHERE org_id = :org_id AND clerk_user_id = :clerk_user_id
+                LIMIT 1
+                """),
+            {"org_id": org_id, "clerk_user_id": clerk_user_id},
+        )
+        member = membership.mappings().first()
+        if member is not None and member["role"] != "owner":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail={"error": "only the organization owner can connect Clerk Billing"},
+            )
+        if member is None:
+            legacy_owner = await session.execute(
+                text("""
+                    SELECT 1
+                    FROM users
+                    WHERE org_id = :org_id AND clerk_user_id = :clerk_user_id
+                    LIMIT 1
+                    """),
+                {"org_id": org_id, "clerk_user_id": clerk_user_id},
+            )
+            if legacy_owner.first() is None:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail={"error": "only the organization owner can connect Clerk Billing"},
+                )
+
+        conflict = await session.execute(
+            text("""
+                SELECT id
+                FROM orgs
+                WHERE clerk_org_id = :clerk_org_id AND id != :org_id
+                LIMIT 1
+                """),
+            {"org_id": org_id, "clerk_org_id": body.clerk_org_id},
+        )
+        if conflict.first() is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"error": "Clerk organization is already linked"},
+            )
+
+        result = await session.execute(
+            text("""
+                UPDATE orgs
+                SET clerk_org_id = :clerk_org_id
+                WHERE id = :org_id
+                  AND (clerk_org_id IS NULL OR clerk_org_id = :clerk_org_id)
+                RETURNING id
+                """),
+            {"org_id": org_id, "clerk_org_id": body.clerk_org_id},
+        )
+        if result.first() is None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "organization is already linked to a different Clerk organization"
+                },
+            )
+        await session.commit()
+
+    await run_db(_link)
+
+
 async def list_members_and_invites(session: AsyncSession, org_id: str) -> OrgMembersResponse:
     async def _load() -> OrgMembersResponse:
         members_result = await session.execute(
-            text(
-                """
+            text("""
                 SELECT
                     id::text AS id,
                     email,
@@ -106,8 +177,7 @@ async def list_members_and_invites(session: AsyncSession, org_id: str) -> OrgMem
                         ELSE 3
                     END,
                     created_at ASC
-                """
-            ),
+                """),
             {"org_id": org_id},
         )
         members = [
@@ -124,8 +194,7 @@ async def list_members_and_invites(session: AsyncSession, org_id: str) -> OrgMem
         # Legacy fallback: orgs provisioned before org_members existed.
         if not members:
             legacy = await session.execute(
-                text(
-                    """
+                text("""
                     SELECT
                         u.id::text AS id,
                         u.email,
@@ -134,8 +203,7 @@ async def list_members_and_invites(session: AsyncSession, org_id: str) -> OrgMem
                     FROM users u
                     WHERE u.org_id = :org_id
                     ORDER BY u.created_at ASC
-                    """
-                ),
+                    """),
                 {"org_id": org_id},
             )
             members = [
@@ -150,8 +218,7 @@ async def list_members_and_invites(session: AsyncSession, org_id: str) -> OrgMem
             ]
 
         invites_result = await session.execute(
-            text(
-                """
+            text("""
                 SELECT
                     id::text AS id,
                     email,
@@ -164,8 +231,7 @@ async def list_members_and_invites(session: AsyncSession, org_id: str) -> OrgMem
                 WHERE org_id = :org_id
                   AND status = 'pending'
                 ORDER BY created_at DESC
-                """
-            ),
+                """),
             {"org_id": org_id},
         )
         invites = [
@@ -197,13 +263,11 @@ async def create_invite(
 
     async def _insert() -> OrgInvite:
         existing_member = await session.execute(
-            text(
-                """
+            text("""
                 SELECT 1 FROM org_members
                 WHERE org_id = :org_id AND lower(email) = :email
                 LIMIT 1
-                """
-            ),
+                """),
             {"org_id": org_id, "email": email},
         )
         if existing_member.first() is not None:
@@ -213,15 +277,13 @@ async def create_invite(
             )
 
         existing_invite = await session.execute(
-            text(
-                """
+            text("""
                 SELECT id::text FROM org_invites
                 WHERE org_id = :org_id
                   AND lower(email) = :email
                   AND status = 'pending'
                 LIMIT 1
-                """
-            ),
+                """),
             {"org_id": org_id, "email": email},
         )
         if existing_invite.first() is not None:
@@ -231,8 +293,7 @@ async def create_invite(
             )
 
         result = await session.execute(
-            text(
-                """
+            text("""
                 INSERT INTO org_invites (org_id, email, role, invited_by)
                 VALUES (:org_id, :email, :role, :invited_by)
                 RETURNING
@@ -243,8 +304,7 @@ async def create_invite(
                     invited_by,
                     created_at::text AS created_at,
                     expires_at::text AS expires_at
-                """
-            ),
+                """),
             {
                 "org_id": org_id,
                 "email": email,
@@ -277,14 +337,12 @@ async def update_member_role(
 ) -> OrgMember:
     async def _update() -> OrgMember:
         current = await session.execute(
-            text(
-                """
+            text("""
                 SELECT id::text AS id, email, role, clerk_user_id, created_at::text AS joined_at
                 FROM org_members
                 WHERE id = :member_id AND org_id = :org_id
                 LIMIT 1
-                """
-            ),
+                """),
             {"member_id": member_id, "org_id": org_id},
         )
         row = current.mappings().first()
@@ -300,8 +358,7 @@ async def update_member_role(
             )
 
         result = await session.execute(
-            text(
-                """
+            text("""
                 UPDATE org_members
                 SET role = :role
                 WHERE id = :member_id AND org_id = :org_id
@@ -311,8 +368,7 @@ async def update_member_role(
                     role,
                     clerk_user_id,
                     created_at::text AS joined_at
-                """
-            ),
+                """),
             {"member_id": member_id, "org_id": org_id, "role": body.role},
         )
         updated = result.mappings().first()
@@ -336,13 +392,11 @@ async def update_member_role(
 async def remove_member(session: AsyncSession, org_id: str, member_id: str) -> None:
     async def _delete() -> None:
         current = await session.execute(
-            text(
-                """
+            text("""
                 SELECT role FROM org_members
                 WHERE id = :member_id AND org_id = :org_id
                 LIMIT 1
-                """
-            ),
+                """),
             {"member_id": member_id, "org_id": org_id},
         )
         row = current.mappings().first()
@@ -358,12 +412,10 @@ async def remove_member(session: AsyncSession, org_id: str, member_id: str) -> N
             )
 
         await session.execute(
-            text(
-                """
+            text("""
                 DELETE FROM org_members
                 WHERE id = :member_id AND org_id = :org_id
-                """
-            ),
+                """),
             {"member_id": member_id, "org_id": org_id},
         )
         await session.commit()
@@ -374,16 +426,14 @@ async def remove_member(session: AsyncSession, org_id: str, member_id: str) -> N
 async def revoke_invite(session: AsyncSession, org_id: str, invite_id: str) -> None:
     async def _revoke() -> None:
         result = await session.execute(
-            text(
-                """
+            text("""
                 UPDATE org_invites
                 SET status = 'revoked'
                 WHERE id = :invite_id
                   AND org_id = :org_id
                   AND status = 'pending'
                 RETURNING id
-                """
-            ),
+                """),
             {"invite_id": invite_id, "org_id": org_id},
         )
         if result.first() is None:

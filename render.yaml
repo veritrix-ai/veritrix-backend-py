@@ -8,6 +8,8 @@
 # 1. Set Clerk + CORS values prompted in the dashboard (sync: false).
 # 2. Run scripts/init_postgres.sql against the Render Postgres instance once
 #    (Render does not auto-apply that init script).
+#    Existing databases also need scripts/add_onboarding_profiles.sql and
+#    scripts/add_clerk_org_id.sql applied once.
 # 3. Ingest creates the ClickHouse database + spans table on startup
 #    (ensure_schema). Do not set CLICKHOUSE_* init env vars on the ClickHouse
 #    service itself — that breaks the official entrypoint on Render.

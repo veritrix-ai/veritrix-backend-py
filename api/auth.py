@@ -8,7 +8,12 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import PyJWKClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from api.db.postgres import get_session, lookup_org_id_for_api_key, lookup_org_id_for_clerk_user
+from api.db.postgres import (
+    get_session,
+    lookup_org_id_for_api_key,
+    lookup_org_id_for_clerk_org,
+    lookup_org_id_for_clerk_user,
+)
 from shared.config import get_settings
 
 _bearer_scheme = HTTPBearer(auto_error=False)
@@ -20,6 +25,7 @@ class AuthContext:
     user_id: str | None
     org_id: str | None
     email: str | None = None
+    clerk_org_id: str | None = None
 
 
 def _clerk_auth_enabled() -> bool:
@@ -39,7 +45,9 @@ def _get_jwk_client() -> PyJWKClient | None:
 def _verify_clerk_token(token: str) -> dict:
     jwk_client = _get_jwk_client()
     if jwk_client is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"error": "unauthorized"})
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail={"error": "unauthorized"}
+        )
 
     try:
         signing_key = jwk_client.get_signing_key_from_jwt(token)
@@ -74,7 +82,9 @@ async def _auth_from_api_key(session: AsyncSession, token: str) -> AuthContext |
 
     org_id = await lookup_org_id_for_api_key(session, token)
     if org_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"error": "invalid api key"})
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail={"error": "invalid api key"}
+        )
 
     return AuthContext(user_id=None, org_id=org_id, email=None)
 
@@ -88,7 +98,9 @@ async def get_auth_context(
     if credentials is None or credentials.scheme.lower() != "bearer":
         if settings.environment == "development" and not _clerk_auth_enabled():
             return AuthContext(user_id=None, org_id=None, email=None)
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"error": "unauthorized"})
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail={"error": "unauthorized"}
+        )
 
     api_key_auth = await _auth_from_api_key(session, credentials.credentials)
     if api_key_auth is not None:
@@ -99,13 +111,24 @@ async def get_auth_context(
 
     payload = _verify_clerk_token(credentials.credentials)
     user_id = payload.get("sub")
-    org_id = payload.get("org_id")
+    clerk_org_id = payload.get("org_id")
     email = _extract_email(payload)
 
-    if org_id is None and user_id is not None:
+    if isinstance(clerk_org_id, str):
+        org_id = await lookup_org_id_for_clerk_org(session, clerk_org_id)
+        if org_id is None and user_id is not None:
+            org_id = await lookup_org_id_for_clerk_user(session, user_id)
+    elif user_id is not None:
         org_id = await lookup_org_id_for_clerk_user(session, user_id)
+    else:
+        org_id = None
 
-    return AuthContext(user_id=user_id, org_id=org_id, email=email)
+    return AuthContext(
+        user_id=user_id,
+        org_id=org_id,
+        email=email,
+        clerk_org_id=clerk_org_id if isinstance(clerk_org_id, str) else None,
+    )
 
 
 async def require_authenticated_user(
@@ -117,7 +140,9 @@ async def require_authenticated_user(
         return AuthContext(user_id="dev-user", org_id=None, email="dev@agentops.local")
 
     if auth.user_id is None and auth.org_id is None:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail={"error": "unauthorized"})
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail={"error": "unauthorized"}
+        )
 
     return auth
 

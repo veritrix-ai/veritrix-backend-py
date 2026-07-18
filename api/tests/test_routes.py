@@ -1,10 +1,24 @@
 from __future__ import annotations
 
+from unittest.mock import AsyncMock
+
 import pytest
 from httpx import AsyncClient
 
+from api.models import ProjectSummary
 
 DEMO_ORG_ID = "11111111-1111-1111-1111-111111111111"
+
+
+@pytest.fixture
+def mock_project_service(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    service = AsyncMock()
+    service.rename_project.return_value = ProjectSummary(
+        id="22222222-2222-2222-2222-222222222222",
+        name="Renamed Project",
+    )
+    monkeypatch.setattr("api.routes.projects.project_service", service)
+    return service
 
 
 @pytest.mark.asyncio
@@ -58,3 +72,45 @@ async def test_metrics_overview(client: AsyncClient, mock_trace_service) -> None
     response = await client.get(f"/v1/metrics/overview?org_id={DEMO_ORG_ID}")
     assert response.status_code == 200
     assert response.json()["overview"]["total_events"] == 3
+
+
+@pytest.mark.asyncio
+async def test_rename_project(client: AsyncClient, mock_project_service: AsyncMock) -> None:
+    response = await client.patch(
+        f"/v1/projects/project-1?org_id={DEMO_ORG_ID}",
+        json={"name": "Renamed Project"},
+    )
+    assert response.status_code == 200
+    assert response.json() == {
+        "id": "22222222-2222-2222-2222-222222222222",
+        "name": "Renamed Project",
+    }
+    mock_project_service.rename_project.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_delete_project(client: AsyncClient, mock_project_service: AsyncMock) -> None:
+    response = await client.request(
+        "DELETE",
+        f"/v1/projects/project-1?org_id={DEMO_ORG_ID}",
+        json={"confirm_name": "Default Project"},
+    )
+    assert response.status_code == 204
+    mock_project_service.delete_project.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_link_clerk_organization(
+    client: AsyncClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service = AsyncMock()
+    monkeypatch.setattr("api.routes.organization.org_service", service)
+
+    response = await client.patch(
+        f"/v1/organization/clerk-link?org_id={DEMO_ORG_ID}",
+        json={"clerk_org_id": "org_clerk_acme"},
+    )
+
+    assert response.status_code == 204
+    service.link_clerk_organization.assert_awaited_once()

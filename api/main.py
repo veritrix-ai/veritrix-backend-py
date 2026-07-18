@@ -12,6 +12,7 @@ from api.routes.agents import router as agents_router
 from api.routes.me import router as me_router
 from api.routes.metrics import router as metrics_router
 from api.routes.organization import router as organization_router
+from api.routes.projects import router as projects_router
 from api.routes.traces import router as traces_router
 from shared.config import get_settings
 
@@ -20,6 +21,12 @@ logger = logging.getLogger("api")
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    settings = get_settings()
+    if settings.environment != "development" and not settings.resolved_clerk_jwks_url():
+        logger.error(
+            "Clerk JWKS URL is not configured. Set CLERK_PUBLISHABLE_KEY "
+            "(or CLERK_JWKS_URL) on this service — /v1/* requests will return 401."
+        )
     yield
     await dispose_engine()
 
@@ -40,6 +47,7 @@ app.include_router(agents_router)
 app.include_router(metrics_router)
 app.include_router(me_router)
 app.include_router(organization_router)
+app.include_router(projects_router)
 
 
 @app.get("/health")

@@ -168,6 +168,14 @@ class ProjectSummary(BaseModel):
     name: str
 
 
+class UpdateProjectRequest(BaseModel):
+    name: str = Field(min_length=1, max_length=200)
+
+
+class DeleteProjectRequest(BaseModel):
+    confirm_name: str = Field(min_length=1, max_length=200)
+
+
 class ApiKeySummary(BaseModel):
     id: str
     key_value: str
@@ -179,6 +187,7 @@ class MeResponse(BaseModel):
     clerk_user_id: str
     email: str
     org_id: str | None = None
+    clerk_org_id: str | None = None
     org_name: str | None = None
     projects: list[ProjectSummary] = Field(default_factory=list)
     api_keys: list[ApiKeySummary] = Field(default_factory=list)
@@ -188,6 +197,15 @@ class MeResponse(BaseModel):
 class OnboardingRequest(BaseModel):
     org_name: str = Field(min_length=1, max_length=200)
     email: str | None = Field(default=None, max_length=320)
+    clerk_org_id: str | None = Field(default=None, pattern=r"^org_", max_length=100)
+    usage: Literal["hobby", "work", "help"]
+    company_size: str = Field(min_length=1, max_length=50)
+    building_description: str = Field(min_length=1, max_length=2000)
+    stage: str = Field(min_length=1, max_length=100)
+    heard_from: str = Field(min_length=1, max_length=100)
+    frameworks: list[str] = Field(min_length=1, max_length=30)
+    providers: list[str] = Field(default_factory=list, max_length=30)
+    help_goals: list[str] = Field(min_length=1, max_length=10)
 
 
 OrgRole = Literal["owner", "admin", "member", "viewer"]
@@ -205,6 +223,10 @@ class OrganizationDetail(BaseModel):
 
 class UpdateOrganizationRequest(BaseModel):
     name: str = Field(min_length=1, max_length=200)
+
+
+class LinkClerkOrganizationRequest(BaseModel):
+    clerk_org_id: str = Field(pattern=r"^org_", max_length=100)
 
 
 class OrgMember(BaseModel):

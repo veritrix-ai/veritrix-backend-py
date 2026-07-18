@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from api.auth import AuthContext, require_authenticated_user, resolve_org_id
 from api.db.postgres import get_session
 from api.models import (
     CreateInviteRequest,
+    LinkClerkOrganizationRequest,
     OrgInvite,
     OrgMember,
     OrgMembersResponse,
@@ -36,6 +37,22 @@ async def update_organization(
     session: AsyncSession = Depends(get_session),
 ) -> OrganizationDetail:
     return await org_service.update_organization(session, org_id, body)
+
+
+@router.patch("/clerk-link", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def link_clerk_organization(
+    body: LinkClerkOrganizationRequest,
+    org_id: str = Depends(resolve_org_id),
+    auth: AuthContext = Depends(require_authenticated_user),
+    session: AsyncSession = Depends(get_session),
+) -> Response:
+    if auth.user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={"error": "user session required"},
+        )
+    await org_service.link_clerk_organization(session, org_id, auth.user_id, body)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/members", response_model=OrgMembersResponse)
@@ -73,7 +90,9 @@ async def update_member_role(
     return await org_service.update_member_role(session, org_id, member_id, body)
 
 
-@router.delete("/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete(
+    "/members/{member_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response
+)
 async def remove_member(
     member_id: str,
     org_id: str = Depends(resolve_org_id),
@@ -84,7 +103,9 @@ async def remove_member(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@router.delete("/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+@router.delete(
+    "/invites/{invite_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response
+)
 async def revoke_invite(
     invite_id: str,
     org_id: str = Depends(resolve_org_id),

@@ -23,6 +23,13 @@ docker compose up -d
 
 This starts ClickHouse and PostgreSQL with seed data, including a development API key and demo org (`11111111-1111-1111-1111-111111111111`).
 
+For an existing deployed PostgreSQL database, apply organization billing linkage once before
+deploying the Clerk Billing frontend:
+
+```bash
+psql "$DATABASE_URL" -f scripts/add_clerk_org_id.sql
+```
+
 ### 2. Configure environment
 
 ```bash

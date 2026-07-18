@@ -43,6 +43,7 @@ def bypass_auth() -> None:
             user_id="dev-user",
             org_id="11111111-1111-1111-1111-111111111111",
             email="dev@agentops.local",
+            clerk_org_id="org_clerk_acme",
         )
 
     app.dependency_overrides[get_auth_context] = dev_auth

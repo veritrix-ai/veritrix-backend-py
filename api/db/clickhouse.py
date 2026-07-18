@@ -18,7 +18,9 @@ class ClickHouseReader:
 
     def _auth(self) -> httpx.BasicAuth | None:
         if self._settings.clickhouse_password:
-            return httpx.BasicAuth(self._settings.clickhouse_user, self._settings.clickhouse_password)
+            return httpx.BasicAuth(
+                self._settings.clickhouse_user, self._settings.clickhouse_password
+            )
         return None
 
     async def query(self, sql: str, params: dict[str, Any] | None = None) -> list[dict[str, Any]]:

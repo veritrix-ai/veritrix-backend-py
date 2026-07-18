@@ -6,7 +6,12 @@ from typing import TypeVar
 
 from sqlalchemy import text
 from sqlalchemy.exc import DBAPIError, InterfaceError, OperationalError
-from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import (
+    AsyncEngine,
+    AsyncSession,
+    async_sessionmaker,
+    create_async_engine,
+)
 
 from shared.config import get_settings
 
@@ -27,13 +32,19 @@ def is_db_connection_error(exc: BaseException | None) -> bool:
         return False
     if isinstance(exc, DatabaseUnavailableError):
         return True
-    if isinstance(exc, (ConnectionRefusedError, ConnectionResetError, BrokenPipeError, TimeoutError)):
+    if isinstance(
+        exc, (ConnectionRefusedError, ConnectionResetError, BrokenPipeError, TimeoutError)
+    ):
         return True
     if isinstance(exc, OSError) and getattr(exc, "errno", None) in {61, 111, 10061}:
         return True
     if isinstance(exc, (OperationalError, InterfaceError, DBAPIError)):
         for candidate in (getattr(exc, "orig", None), exc.__cause__, exc.__context__):
-            if isinstance(candidate, BaseException) and candidate is not exc and is_db_connection_error(candidate):
+            if (
+                isinstance(candidate, BaseException)
+                and candidate is not exc
+                and is_db_connection_error(candidate)
+            ):
                 return True
         message = str(exc).lower()
         return any(
@@ -90,15 +101,30 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 async def lookup_org_id_for_clerk_user(session: AsyncSession, clerk_user_id: str) -> str | None:
     async def _lookup() -> str | None:
         result = await session.execute(
-            text(
-                """
+            text("""
                 SELECT org_id::text
                 FROM users
                 WHERE clerk_user_id = :clerk_user_id
                 LIMIT 1
-                """
-            ),
+                """),
             {"clerk_user_id": clerk_user_id},
+        )
+        row = result.first()
+        return row[0] if row else None
+
+    return await run_db(_lookup)
+
+
+async def lookup_org_id_for_clerk_org(session: AsyncSession, clerk_org_id: str) -> str | None:
+    async def _lookup() -> str | None:
+        result = await session.execute(
+            text("""
+                SELECT id::text
+                FROM orgs
+                WHERE clerk_org_id = :clerk_org_id
+                LIMIT 1
+                """),
+            {"clerk_org_id": clerk_org_id},
         )
         row = result.first()
         return row[0] if row else None
@@ -109,15 +135,13 @@ async def lookup_org_id_for_clerk_user(session: AsyncSession, clerk_user_id: str
 async def lookup_org_id_for_api_key(session: AsyncSession, api_key: str) -> str | None:
     async def _lookup() -> str | None:
         result = await session.execute(
-            text(
-                """
+            text("""
                 SELECT org_id::text
                 FROM api_keys
                 WHERE key_value = :api_key
                   AND revoked_at IS NULL
                 LIMIT 1
-                """
-            ),
+                """),
             {"api_key": api_key},
         )
         row = result.first()

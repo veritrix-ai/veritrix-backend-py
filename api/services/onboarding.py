@@ -13,19 +13,18 @@ from api.models import ApiKeySummary, MeResponse, OnboardingRequest, ProjectSumm
 async def get_user_profile(session: AsyncSession, clerk_user_id: str) -> MeResponse | None:
     async def _load() -> MeResponse | None:
         result = await session.execute(
-            text(
-                """
+            text("""
                 SELECT
                     u.clerk_user_id,
                     u.email,
                     o.id::text AS org_id,
+                    o.clerk_org_id,
                     o.name AS org_name
                 FROM users u
                 JOIN orgs o ON o.id = u.org_id
                 WHERE u.clerk_user_id = :clerk_user_id
                 LIMIT 1
-                """
-            ),
+                """),
             {"clerk_user_id": clerk_user_id},
         )
         row = result.mappings().first()
@@ -40,6 +39,7 @@ async def get_user_profile(session: AsyncSession, clerk_user_id: str) -> MeRespo
             clerk_user_id=row["clerk_user_id"],
             email=row["email"],
             org_id=org_id,
+            clerk_org_id=row.get("clerk_org_id"),
             org_name=row["org_name"],
             projects=projects,
             api_keys=api_keys,
@@ -67,41 +67,84 @@ async def provision_user(
 
     async def _insert() -> None:
         await session.execute(
-            text("INSERT INTO orgs (id, name) VALUES (:id, :name)"),
-            {"id": org_id, "name": org_name},
+            text("""
+                INSERT INTO orgs (id, name, clerk_org_id)
+                VALUES (:id, :name, :clerk_org_id)
+                """),
+            {
+                "id": org_id,
+                "name": org_name,
+                "clerk_org_id": request.clerk_org_id,
+            },
         )
         await session.execute(
-            text(
-                """
+            text("""
                 INSERT INTO users (org_id, clerk_user_id, email)
                 VALUES (:org_id, :clerk_user_id, :email)
                 RETURNING id::text
-                """
-            ),
+                """),
             {"org_id": org_id, "clerk_user_id": clerk_user_id, "email": email},
         )
         user_row = (
             await session.execute(
-                text(
-                    """
+                text("""
                     SELECT id::text
                     FROM users
                     WHERE clerk_user_id = :clerk_user_id
                     LIMIT 1
-                    """
-                ),
+                    """),
                 {"clerk_user_id": clerk_user_id},
             )
         ).first()
         user_id = user_row[0] if user_row else None
+        if user_id is None:
+            raise RuntimeError("Failed to create onboarding user")
         await session.execute(
-            text(
-                """
+            text("""
+                INSERT INTO onboarding_profiles (
+                    user_id,
+                    org_id,
+                    usage,
+                    company_size,
+                    building_description,
+                    stage,
+                    heard_from,
+                    frameworks,
+                    providers,
+                    help_goals
+                )
+                VALUES (
+                    :user_id,
+                    :org_id,
+                    :usage,
+                    :company_size,
+                    :building_description,
+                    :stage,
+                    :heard_from,
+                    :frameworks,
+                    :providers,
+                    :help_goals
+                )
+                """),
+            {
+                "user_id": user_id,
+                "org_id": org_id,
+                "usage": request.usage,
+                "company_size": request.company_size,
+                "building_description": request.building_description,
+                "stage": request.stage,
+                "heard_from": request.heard_from,
+                "frameworks": request.frameworks,
+                "providers": request.providers,
+                "help_goals": request.help_goals,
+            },
+        )
+        await session.execute(
+            text("""
                 INSERT INTO org_members (org_id, user_id, clerk_user_id, email, role)
                 VALUES (:org_id, :user_id, :clerk_user_id, :email, 'owner')
                 ON CONFLICT (org_id, email) DO NOTHING
-                """
-            ),
+                """),
             {
                 "org_id": org_id,
                 "user_id": user_id,
@@ -110,21 +153,17 @@ async def provision_user(
             },
         )
         await session.execute(
-            text(
-                """
+            text("""
                 INSERT INTO projects (id, org_id, name)
                 VALUES (:id, :org_id, :name)
-                """
-            ),
+                """),
             {"id": project_id, "org_id": org_id, "name": "Default Project"},
         )
         await session.execute(
-            text(
-                """
+            text("""
                 INSERT INTO api_keys (org_id, project_id, key_value, name)
                 VALUES (:org_id, :project_id, :key_value, :name)
-                """
-            ),
+                """),
             {
                 "org_id": org_id,
                 "project_id": project_id,
@@ -144,14 +183,12 @@ async def provision_user(
 
 async def _list_projects(session: AsyncSession, org_id: str) -> list[ProjectSummary]:
     result = await session.execute(
-        text(
-            """
+        text("""
             SELECT id::text AS id, name
             FROM projects
             WHERE org_id = :org_id
             ORDER BY created_at ASC
-            """
-        ),
+            """),
         {"org_id": org_id},
     )
     return [ProjectSummary(id=row["id"], name=row["name"]) for row in result.mappings()]
@@ -159,8 +196,7 @@ async def _list_projects(session: AsyncSession, org_id: str) -> list[ProjectSumm
 
 async def _list_api_keys(session: AsyncSession, org_id: str) -> list[ApiKeySummary]:
     result = await session.execute(
-        text(
-            """
+        text("""
             SELECT
                 ak.id::text AS id,
                 ak.key_value,
@@ -171,8 +207,7 @@ async def _list_api_keys(session: AsyncSession, org_id: str) -> list[ApiKeySumma
             WHERE ak.org_id = :org_id
               AND ak.revoked_at IS NULL
             ORDER BY ak.created_at ASC
-            """
-        ),
+            """),
         {"org_id": org_id},
     )
     return [
