@@ -32,7 +32,10 @@ class ClickHouseReader:
         async with httpx.AsyncClient(timeout=30.0) as client:
             # Use GET for read-only queries; some ClickHouse setups reject POST without a body.
             response = await client.get(self._base_url, params=query_params, auth=self._auth())
-            response.raise_for_status()
+            if response.is_error:
+                raise RuntimeError(
+                    f"ClickHouse query failed ({response.status_code}): {response.text.strip()}"
+                )
             payload = response.json()
             return payload.get("data", [])
 

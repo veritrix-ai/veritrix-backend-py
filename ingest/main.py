@@ -13,11 +13,16 @@ from shared.config import get_settings
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    import logging
+
+    logger = logging.getLogger("ingest")
     settings = get_settings()
     clickhouse = get_clickhouse_client()
     try:
         await clickhouse.ensure_schema()
+        logger.info("ClickHouse schema ready (db=%s)", settings.clickhouse_db)
     except Exception:
+        logger.exception("ClickHouse schema ensure failed")
         if settings.environment != "development":
             raise
     yield

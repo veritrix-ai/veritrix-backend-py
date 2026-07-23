@@ -52,18 +52,45 @@ class ClickHouseClient:
             return httpx.BasicAuth(self._settings.clickhouse_user, self._settings.clickhouse_password)
         return None
 
+    async def _exec(self, client: httpx.AsyncClient, query: str) -> str:
+        response = await client.post(
+            self._base_url,
+            params={"query": query},
+            auth=self._auth(),
+        )
+        if response.is_error:
+            raise RuntimeError(
+                f"ClickHouse error ({response.status_code}): {response.text.strip()}"
+            )
+        return response.text
+
     async def ensure_schema(self) -> None:
+        """Create DB/table, and recreate spans if existing table is unreadable.
+
+        After ClickHouse OOM / crashloop on Render, MergeTree metadata can be
+        left in a state where CREATE IF NOT EXISTS succeeds but SELECT returns 500.
+        """
         database = self._settings.clickhouse_db
         create_db = f"CREATE DATABASE IF NOT EXISTS {database}"
         create_table = CREATE_SPANS_TABLE_SQL.format(database=database)
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            for query in (create_db, create_table):
-                response = await client.post(
-                    self._base_url,
-                    params={"query": query},
-                    auth=self._auth(),
-                )
-                response.raise_for_status()
+        probe = f"SELECT count() FROM {database}.{SPANS_TABLE}"
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            await self._exec(client, create_db)
+            await self._exec(client, create_table)
+            try:
+                await self._exec(client, probe)
+            except RuntimeError as first_error:
+                # Corrupted / unreadable table after OOM — drop and recreate.
+                await self._exec(client, f"DROP TABLE IF EXISTS {database}.{SPANS_TABLE}")
+                await self._exec(client, create_table)
+                try:
+                    await self._exec(client, probe)
+                except RuntimeError as second_error:
+                    raise RuntimeError(
+                        f"ClickHouse spans table unreadable after recreate. "
+                        f"first={first_error}; second={second_error}"
+                    ) from second_error
 
     async def insert_spans(self, org_id: str, spans: list[SpanSchema]) -> None:
         if not spans:
