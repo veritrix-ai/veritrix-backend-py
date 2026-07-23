@@ -6,8 +6,8 @@ E2E_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_ROOT="$(cd "${E2E_ROOT}/.." && pwd)"
 
 export ORG_ID="${ORG_ID:-11111111-1111-1111-1111-111111111111}"
-export API_KEY="${AGENTOPS_API_KEY:-ao_live_7f3a9c2e1b8d4f6a5e0c9b2a1d8e7f6b60f6fec}"
-export INGEST_URL="${AGENTOPS_ENDPOINT:-http://localhost:8001}"
+export API_KEY="${VERITRIX_API_KEY:-${AGENTOPS_API_KEY:-ao_live_7f3a9c2e1b8d4f6a5e0c9b2a1d8e7f6b60f6fec}}"
+export INGEST_URL="${VERITRIX_ENDPOINT:-${AGENTOPS_ENDPOINT:-http://localhost:8001}}"
 export APP_URL="${NEXT_PUBLIC_API_URL:-http://localhost:8000}"
 
 check_api_health() {

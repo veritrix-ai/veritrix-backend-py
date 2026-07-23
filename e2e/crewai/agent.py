@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
-Minimal CrewAI crew — E2E test for AgentOps CrewAI integration.
+Minimal CrewAI crew — E2E test for Veritrix CrewAI integration.
 
-agentops.init() auto-patches Crew.__init__ to inject step_callback spans.
+veritrix.init() auto-patches Crew.__init__ to inject step_callback spans.
 """
 
 from __future__ import annotations
@@ -27,14 +27,14 @@ setup_sdk_path()
 
 from dotenv import load_dotenv  # noqa: E402
 
-import agentops  # noqa: E402
-from agentops.config import get_config  # noqa: E402
+import veritrix  # noqa: E402
+from veritrix.config import get_config  # noqa: E402
 
 load_dotenv(E2E_ROOT / ".env")
 load_dotenv(repo_root() / ".env")
 
-API_KEY = os.getenv("AGENTOPS_API_KEY", DEFAULT_API_KEY)
-INGEST_ENDPOINT = os.getenv("AGENTOPS_ENDPOINT", DEFAULT_INGEST_ENDPOINT)
+API_KEY = os.getenv("VERITRIX_API_KEY") or os.getenv("AGENTOPS_API_KEY", DEFAULT_API_KEY)
+INGEST_ENDPOINT = os.getenv("VERITRIX_ENDPOINT") or os.getenv("VERITRIX_ENDPOINT") or os.getenv("AGENTOPS_ENDPOINT", DEFAULT_INGEST_ENDPOINT)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 DEFAULT_TOPIC = "observability for AI agents"
@@ -124,8 +124,8 @@ def main() -> None:
     # Keep demo runs fast and cheap.
     os.environ.setdefault("OPENAI_MODEL_NAME", "gpt-4o-mini")
 
-    print("Initializing AgentOps SDK (CrewAI integration)...")
-    agentops.init(
+    print("Initializing Veritrix SDK (CrewAI integration)...")
+    veritrix.init(
         api_key=API_KEY,
         endpoint=INGEST_ENDPOINT,
         default_tags=["e2e-test", "crewai"],
@@ -150,7 +150,7 @@ def main() -> None:
     finally:
         print()
         print("Flushing spans to ingest API...")
-        agentops.end()
+        veritrix.end()
 
     print_verification_commands(trace_id)
 

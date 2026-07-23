@@ -34,8 +34,8 @@ setup_sdk_path()
 from dotenv import load_dotenv  # noqa: E402
 from pydantic import BaseModel  # noqa: E402
 
-import agentops  # noqa: E402
-from agentops.config import get_config  # noqa: E402
+import veritrix  # noqa: E402
+from veritrix.config import get_config  # noqa: E402
 
 load_dotenv(E2E_ROOT / ".env")
 load_dotenv(repo_root() / ".env")
@@ -45,8 +45,8 @@ DEMO_MESSAGES = [
     "I want to change my seat to 12A. My confirmation number is ABC123.",
 ]
 
-API_KEY = os.getenv("AGENTOPS_API_KEY", DEFAULT_API_KEY)
-INGEST_ENDPOINT = os.getenv("AGENTOPS_ENDPOINT", DEFAULT_INGEST_ENDPOINT)
+API_KEY = os.getenv("VERITRIX_API_KEY") or os.getenv("AGENTOPS_API_KEY", DEFAULT_API_KEY)
+INGEST_ENDPOINT = os.getenv("VERITRIX_ENDPOINT") or os.getenv("VERITRIX_ENDPOINT") or os.getenv("AGENTOPS_ENDPOINT", DEFAULT_INGEST_ENDPOINT)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 try:
@@ -185,7 +185,7 @@ async def run_turn(
 ) -> tuple[Agent[AirlineAgentContext], list[TResponseInputItem]]:
     input_items.append({"content": user_input, "role": "user"})
 
-    with agentops.trace(
+    with veritrix.trace(
         f"turn-{turn_index}",
         span_type="agent",
         input_data={"message": user_input, "conversation_id": conversation_id},
@@ -205,8 +205,8 @@ async def run_conversation(*, interactive: bool) -> str:
 
     os.environ.setdefault("OPENAI_API_KEY", OPENAI_API_KEY)
 
-    print("Initializing AgentOps SDK...")
-    agentops.init(
+    print("Initializing Veritrix SDK...")
+    veritrix.init(
         api_key=API_KEY,
         endpoint=INGEST_ENDPOINT,
         default_tags=["customer-service-agent", "openai-agents", "agentops-example"],
@@ -261,7 +261,7 @@ async def run_conversation(*, interactive: bool) -> str:
                 print()
     finally:
         print("Flushing spans to ingest API...")
-        agentops.end()
+        veritrix.end()
 
     print_verification_commands(trace_id)
     return trace_id

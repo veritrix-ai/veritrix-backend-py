@@ -86,15 +86,15 @@ A `202 Accepted` means the batch passed validation and was queued for async inse
 Users do not call this API directly in normal usage. The Python SDK handles batching, retries, and fail-open behavior:
 
 ```python
-import agentops
+import veritrix
 
-agentops.init(api_key="YOUR_API_KEY", default_tags=["crewai"])
+veritrix.init(api_key="YOUR_API_KEY", default_tags=["crewai"])
 # spans are sent automatically to POST /v1/spans
-agentops.end()
+veritrix.end()
 ```
 
 Default ingest endpoint: `http://localhost:8001/v1/spans`  
-Override with the `AGENTOPS_ENDPOINT` environment variable or SDK `endpoint` parameter.
+Override with the `VERITRIX_ENDPOINT` (or legacy `AGENTOPS_ENDPOINT`) environment variable or SDK `endpoint` parameter.
 
 ---
 

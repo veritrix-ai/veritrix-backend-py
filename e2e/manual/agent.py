@@ -20,16 +20,16 @@ from lib.constants import (  # noqa: E402
 
 setup_sdk_path()
 
-import agentops  # noqa: E402
-from agentops.config import get_config  # noqa: E402
+import veritrix  # noqa: E402
+from veritrix.config import get_config  # noqa: E402
 
-API_KEY = os.getenv("AGENTOPS_API_KEY", DEFAULT_API_KEY)
-ENDPOINT = os.getenv("AGENTOPS_ENDPOINT", DEFAULT_INGEST_ENDPOINT)
+API_KEY = os.getenv("VERITRIX_API_KEY") or os.getenv("AGENTOPS_API_KEY", DEFAULT_API_KEY)
+ENDPOINT = os.getenv("VERITRIX_ENDPOINT") or os.getenv("VERITRIX_ENDPOINT") or os.getenv("AGENTOPS_ENDPOINT", DEFAULT_INGEST_ENDPOINT)
 
 
 def main() -> None:
-    print("Initializing AgentOps SDK (manual E2E)...")
-    agentops.init(
+    print("Initializing Veritrix SDK (manual E2E)...")
+    veritrix.init(
         api_key=API_KEY,
         endpoint=ENDPOINT,
         default_tags=["e2e-test", "manual"],
@@ -40,19 +40,19 @@ def main() -> None:
     trace_id = get_config().trace_id
     print(f"Session trace_id / run_id: {trace_id}")
 
-    with agentops.trace(
+    with veritrix.trace(
         "research-step",
         span_type="agent",
         input_data={"query": "What are the top ML engineer roles?"},
     ):
         time.sleep(0.1)
-        with agentops.trace("web-search", span_type="tool", input_data="ML engineer jobs 2026"):
+        with veritrix.trace("web-search", span_type="tool", input_data="ML engineer jobs 2026"):
             time.sleep(0.05)
-        with agentops.trace("summarize", span_type="llm", input_data="Summarize search results"):
+        with veritrix.trace("summarize", span_type="llm", input_data="Summarize search results"):
             time.sleep(0.05)
 
     print("Flushing spans...")
-    agentops.end()
+    veritrix.end()
     print_verification_commands(trace_id)
 
 
