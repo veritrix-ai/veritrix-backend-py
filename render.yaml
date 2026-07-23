@@ -57,7 +57,8 @@ services:
   - type: pserv
     name: veritrix-clickhouse
     runtime: docker
-    plan: starter
+    # ClickHouse OOMs on starter (512Mi). Keep at least standard (~2Gi).
+    plan: standard
     region: singapore
     dockerfilePath: ./Dockerfile.clickhouse
     dockerContext: ./
