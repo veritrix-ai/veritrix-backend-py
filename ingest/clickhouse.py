@@ -73,7 +73,7 @@ class ClickHouseClient:
         database = self._settings.clickhouse_db
         create_db = f"CREATE DATABASE IF NOT EXISTS {database}"
         create_table = CREATE_SPANS_TABLE_SQL.format(database=database)
-        probe = f"SELECT count() FROM {database}.{SPANS_TABLE}"
+        probe = f"SELECT 1 FROM {database}.{SPANS_TABLE} LIMIT 1"
 
         async with httpx.AsyncClient(timeout=30.0) as client:
             await self._exec(client, create_db)
